@@ -78,14 +78,14 @@ class MagEquivalentSourceSystem:
         return object.__getattribute__(self, name)
 
     # ── Column names ──────────────────────────────────────────────────────────
-    columns__x: str = "UTMX"
+    columns__x: str = "easting"
     "Easting column in mag_data.data (projected, metres)."
-    columns__y: str = "UTMY"
+    columns__y: str = "northing"
     "Northing column in mag_data.data (projected, metres)."
-    columns__altitude: str = "alt"
+    columns__altitude: str = "gpsalt"
     "Flight altitude column in mag_data.data (metres, same vertical datum as z)."
-    columns__tmi: str = "tmi"
-    "Total magnetic intensity column (nT)."
+    columns__tmi: str = "magcom"
+    "Total magnetic intensity column (nT).  Typically the compensated field."
     columns__tmi_std: typing.Optional[str] = None
     "Uncertainty column (nT). If None, computed from uncertainties__std_data + floor."
 
