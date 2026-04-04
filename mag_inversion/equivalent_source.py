@@ -467,8 +467,10 @@ class MagEquivalentSourceSystem:
             else float(np.nanmean(locs[:, 2]))
         )
 
-        xi = np.arange(locs[:, 0].min(), locs[:, 0].max() + spacing, spacing)
-        yi = np.arange(locs[:, 1].min(), locs[:, 1].max() + spacing, spacing)
+        x_start = np.floor(locs[:, 0].min() / spacing) * spacing
+        y_start = np.floor(locs[:, 1].min() / spacing) * spacing
+        xi = np.arange(x_start, locs[:, 0].max() + spacing, spacing)
+        yi = np.arange(y_start, locs[:, 1].max() + spacing, spacing)
         Xi, Yi = np.meshgrid(xi, yi)
         grid_locs = np.c_[Xi.ravel(), Yi.ravel(), np.full(Xi.size, alt_out)]
 

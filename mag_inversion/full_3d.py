@@ -570,9 +570,12 @@ class MagInversion3DSystem:
             }
 
         # Build regular output grid spanning active cell extent
-        xi = np.arange(cc[:, 0].min(), cc[:, 0].max() + xy_step, xy_step)
-        yi = np.arange(cc[:, 1].min(), cc[:, 1].max() + xy_step, xy_step)
-        zi = np.arange(cc[:, 2].min(), cc[:, 2].max() + z_step, z_step)
+        x_start = np.floor(cc[:, 0].min() / xy_step) * xy_step
+        y_start = np.floor(cc[:, 1].min() / xy_step) * xy_step
+        z_start = np.floor(cc[:, 2].min() / z_step) * z_step
+        xi = np.arange(x_start, cc[:, 0].max() + xy_step, xy_step)
+        yi = np.arange(y_start, cc[:, 1].max() + xy_step, xy_step)
+        zi = np.arange(z_start, cc[:, 2].max() + z_step, z_step)
 
         Xi, Yi, Zi = np.meshgrid(xi, yi, zi, indexing="ij")
         grid_pts = np.c_[Xi.ravel(), Yi.ravel(), Zi.ravel()]
