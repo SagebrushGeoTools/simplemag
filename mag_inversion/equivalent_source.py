@@ -10,7 +10,7 @@ Basic usage::
 
     # mag_data is an AirMagTools.MagData instance
     system = MagEquivalentSourceSystem(mag_data)
-    ds = system.run()                    # xr.Dataset: tmi/bx/by/bz on regular grid
+    ds = system.invert()   # xr.Dataset: tmi/bx/by/bz on regular grid
     ds.webxtile.to_webxtile("equiv_out/")
 
 All class-level attributes can be overridden at instantiation::
@@ -43,6 +43,7 @@ from SimPEG import (
 )
 from SimPEG.potential_fields import magnetics
 
+from ._crs import _crs_to_wkt, _crs_variable_attrs
 from .directives import ReportingDirective
 from .sensitivity_cache import sensitivity_hash
 
@@ -406,6 +407,10 @@ class MagEquivalentSourceSystem:
     def make_inversion(self):
         """Assemble and return the full SimPEG Inversion object.
 
+        Exposed for advanced use (e.g. inspecting the mesh or running
+        multiple inversions with different starting models).  Normal
+        callers should use :meth:`invert` instead.
+
         Returns
         -------
         inv : SimPEG.inversion.BaseInversion
@@ -428,38 +433,28 @@ class MagEquivalentSourceSystem:
     # High-level API
     # ─────────────────────────────────────────────────────────────────────────
 
-    def invert(self):
+    def invert(self) -> xr.Dataset:
         """Run the equivalent source inversion.
+
+        Inverts the TMI data, predicts the requested field components on a
+        regular output grid, and returns the result as an xarray Dataset
+        ready for webxtile output.
 
         Returns
         -------
-        model : np.ndarray
-            Recovered model (susceptibility or magnetization vector).
-        mesh : TensorMesh
-        sim : Simulation3DIntegral
+        xr.Dataset
+            Dimensions ``(y, x)``.  One variable per component in
+            ``output__components`` (e.g. ``tmi``, ``bx``, ``by``, ``bz``).
+            Attributes carry CRS, output altitude, and Earth field
+            parameters for downstream use.
         """
         inv, mesh, sim = self.make_inversion()
         m0 = self.make_startmodel(mesh)
         model = inv.run(m0)
-        return model, mesh, sim
+        return self._to_xarray(model, mesh)
 
-    def predict_on_grid(self, model, mesh, sim):
-        """Forward-predict fields on a regular horizontal grid.
-
-        Parameters
-        ----------
-        model, mesh, sim:
-            Output of :meth:`invert`.
-
-        Returns
-        -------
-        xi : np.ndarray  shape (nx,)
-        yi : np.ndarray  shape (ny,)
-        fields : dict[str, np.ndarray shape (ny, nx)]
-            Predicted fields keyed by component name.
-        alt_out : float
-            Altitude used for the output grid (m).
-        """
+    def _predict_on_grid(self, model, mesh):
+        """Forward-predict fields on a regular horizontal grid."""
         locs = self._receiver_locations
         spacing = (
             self.output__xy_spacing
@@ -505,49 +500,61 @@ class MagEquivalentSourceSystem:
         }
         return xi, yi, fields, alt_out
 
-    def to_xarray(self, model, mesh, sim) -> xr.Dataset:
-        """Convert inversion result to an xarray Dataset.
-
-        The dataset has dimensions ``(y, x)`` and one variable per
-        predicted component. Attributes carry the CRS, altitude, and
-        Earth field parameters so that downstream processes (e.g.
-        MagInversion3DSystem) can read them without extra arguments.
-        """
-        xi, yi, fields, alt_out = self.predict_on_grid(model, mesh, sim)
+    def _to_xarray(self, model, mesh) -> xr.Dataset:
+        xi, yi, fields, alt_out = self._predict_on_grid(model, mesh)
 
         meta = self._mag_data.meta
-        crs = str(meta.get("crs", ""))
+        crs_input = meta.get("crs", "")
+        crs_wkt, epsg_code = _crs_to_wkt(crs_input)
 
         data_vars = {
             comp: xr.DataArray(
                 values,
                 dims=["y", "x"],
-                attrs={"units": "nT", "long_name": comp.upper()},
+                attrs={
+                    "units": "nT",
+                    "long_name": comp.upper(),
+                    "grid_mapping": "spatial_ref",
+                },
             )
             for comp, values in fields.items()
         }
+        data_vars["spatial_ref"] = xr.DataArray(
+            0,
+            attrs=_crs_variable_attrs(crs_wkt, epsg_code),
+        )
 
         return xr.Dataset(
             data_vars,
-            coords={"y": yi, "x": xi},
+            coords={
+                "y": xr.DataArray(
+                    yi,
+                    dims=["y"],
+                    attrs={
+                        "standard_name": "projection_y_coordinate",
+                        "long_name": "Northing",
+                        "units": "m",
+                        "axis": "Y",
+                    },
+                ),
+                "x": xr.DataArray(
+                    xi,
+                    dims=["x"],
+                    attrs={
+                        "standard_name": "projection_x_coordinate",
+                        "long_name": "Easting",
+                        "units": "m",
+                        "axis": "X",
+                    },
+                ),
+            },
             attrs={
-                "crs": crs,
+                "Conventions": "CF-1.8",
+                "title": "Magnetic equivalent source — gridded fields",
                 "output_altitude_m": float(alt_out),
                 "field_intensity_nT": self._field_params[0],
                 "field_inclination_deg": self._field_params[1],
                 "field_declination_deg": self._field_params[2],
-                "Conventions": "CF-1.8",
-                "title": "Magnetic equivalent source — gridded fields",
             },
         )
 
-    def run(self) -> xr.Dataset:
-        """Full pipeline: invert then predict on grid.
-
-        Returns
-        -------
-        xr.Dataset
-            Gridded magnetic fields ready for webxtile output.
-        """
-        model, mesh, sim = self.invert()
-        return self.to_xarray(model, mesh, sim)

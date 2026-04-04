@@ -46,6 +46,7 @@ from SimPEG import (
 )
 from SimPEG.potential_fields import magnetics
 
+from ._crs import _crs_to_wkt, _crs_variable_attrs
 from .directives import ReportingDirective
 from .sensitivity_cache import sensitivity_hash
 
@@ -482,6 +483,9 @@ class MagInversion3DSystem:
     def make_inversion(self):
         """Assemble the full SimPEG Inversion.
 
+        Exposed for advanced use (e.g. inspecting the mesh or active cells
+        before running).  Normal callers should use :meth:`invert` instead.
+
         Returns
         -------
         inv : SimPEG.inversion.BaseInversion
@@ -506,22 +510,22 @@ class MagInversion3DSystem:
     # High-level API
     # ─────────────────────────────────────────────────────────────────────────
 
-    def invert(self):
+    def invert(self) -> xr.Dataset:
         """Run the 3D inversion.
 
         Returns
         -------
-        model : np.ndarray
-        mesh : TreeMesh
-        sim : Simulation3DIntegral
-        active_cells : np.ndarray (bool)
+        xr.Dataset
+            Dimensions ``(z, y, x)``.  Variables: ``susceptibility``
+            (scalar / amplitude) or ``mx`` / ``my`` / ``mz`` (vector).
+            Attributes carry CRS and Earth field parameters.
         """
         inv, mesh, sim, active_cells = self.make_inversion()
         m0 = self.make_startmodel(active_cells)
         model = inv.run(m0)
-        return model, mesh, sim, active_cells
+        return self._to_xarray(model, mesh, active_cells)
 
-    def to_xarray(
+    def _to_xarray(
         self,
         model: np.ndarray,
         mesh: TreeMesh,
@@ -573,6 +577,9 @@ class MagInversion3DSystem:
         Xi, Yi, Zi = np.meshgrid(xi, yi, zi, indexing="ij")
         grid_pts = np.c_[Xi.ravel(), Yi.ravel(), Zi.ravel()]
 
+        in_attrs = self._grid_data.attrs
+        crs_wkt, epsg_code = _crs_to_wkt(in_attrs.get("crs_wkt") or in_attrs.get("epsg_code") or in_attrs.get("crs", ""))
+
         data_vars = {}
         for vname, vals in values_dict.items():
             interp = NearestNDInterpolator(cc, vals)
@@ -582,31 +589,59 @@ class MagInversion3DSystem:
             data_vars[vname] = xr.DataArray(
                 gridded.transpose(2, 1, 0),  # z, y, x
                 dims=["z", "y", "x"],
-                attrs={"units": units, "long_name": long_names[vname]},
+                attrs={
+                    "units": units,
+                    "long_name": long_names[vname],
+                    "grid_mapping": "spatial_ref",
+                },
             )
+        data_vars["spatial_ref"] = xr.DataArray(
+            0,
+            attrs=_crs_variable_attrs(crs_wkt, epsg_code),
+        )
 
-        attrs = self._grid_data.attrs
         return xr.Dataset(
             data_vars,
-            coords={"x": xi, "y": yi, "z": zi},
+            coords={
+                "z": xr.DataArray(
+                    zi,
+                    dims=["z"],
+                    attrs={
+                        "standard_name": "depth",
+                        "long_name": "Depth (positive up)",
+                        "units": "m",
+                        "axis": "Z",
+                        "positive": "up",
+                    },
+                ),
+                "y": xr.DataArray(
+                    yi,
+                    dims=["y"],
+                    attrs={
+                        "standard_name": "projection_y_coordinate",
+                        "long_name": "Northing",
+                        "units": "m",
+                        "axis": "Y",
+                    },
+                ),
+                "x": xr.DataArray(
+                    xi,
+                    dims=["x"],
+                    attrs={
+                        "standard_name": "projection_x_coordinate",
+                        "long_name": "Easting",
+                        "units": "m",
+                        "axis": "X",
+                    },
+                ),
+            },
             attrs={
-                "crs": attrs.get("crs", ""),
+                "Conventions": "CF-1.8",
+                "title": "3D magnetic inversion",
+                "model_type": self.model_type,
                 "field_intensity_nT": self._field_params[0],
                 "field_inclination_deg": self._field_params[1],
                 "field_declination_deg": self._field_params[2],
-                "model_type": self.model_type,
-                "Conventions": "CF-1.8",
-                "title": "3D magnetic inversion",
             },
         )
 
-    def run(self) -> xr.Dataset:
-        """Full pipeline: invert then export to 3D xarray Dataset.
-
-        Returns
-        -------
-        xr.Dataset
-            3D susceptibility or magnetisation model ready for webxtile.
-        """
-        model, mesh, sim, active_cells = self.invert()
-        return self.to_xarray(model, mesh, active_cells)
