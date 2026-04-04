@@ -570,12 +570,15 @@ class MagInversion3DSystem:
             }
 
         # Build regular output grid spanning active cell extent
-        x_start = np.floor(cc[:, 0].min() / xy_step) * xy_step
-        y_start = np.floor(cc[:, 1].min() / xy_step) * xy_step
-        z_start = np.floor(cc[:, 2].min() / z_step) * z_step
-        xi = np.arange(x_start, cc[:, 0].max() + xy_step, xy_step)
-        yi = np.arange(y_start, cc[:, 1].max() + xy_step, xy_step)
-        zi = np.arange(z_start, cc[:, 2].max() + z_step, z_step)
+        x_min = np.floor(cc[:, 0].min() / xy_step) * xy_step
+        x_max = np.ceil( cc[:, 0].max() / xy_step) * xy_step
+        y_min = np.floor(cc[:, 1].min() / xy_step) * xy_step
+        y_max = np.ceil( cc[:, 1].max() / xy_step) * xy_step
+        z_min = np.floor(cc[:, 2].min() / z_step) * z_step
+        z_max = np.ceil( cc[:, 2].max() / z_step) * z_step
+        xi = np.arange(x_min, x_max + xy_step * 0.5, xy_step)
+        yi = np.arange(y_min, y_max + xy_step * 0.5, xy_step)
+        zi = np.arange(z_min, z_max +  z_step * 0.5,  z_step)
 
         Xi, Yi, Zi = np.meshgrid(xi, yi, zi, indexing="ij")
         grid_pts = np.c_[Xi.ravel(), Yi.ravel(), Zi.ravel()]
