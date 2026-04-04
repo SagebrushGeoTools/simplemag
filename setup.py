@@ -19,9 +19,10 @@ setup(
         "simpeg",
     ],
     entry_points={
-        # Systems loadable by nagelfluh mag process types via entry point name
-        "nagelfluh.mag_inversion_systems": [
+        "nagelfluh.mag_equiv_source_systems": [
             "Equivalent Source=mag_inversion.equivalent_source:MagEquivalentSourceSystem",
+        ],
+        "nagelfluh.mag_inversion_3d_systems": [
             "3D Inversion=mag_inversion.full_3d:MagInversion3DSystem",
         ],
     },
